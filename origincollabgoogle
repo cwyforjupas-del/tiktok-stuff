@@ -1,0 +1,56 @@
+from ast import literal_eval
+
+# Ensure df_scraped_products is available in the current scope
+# If this cell is run independently, you might need to load the CSV:
+df_scraped_products = pd.read_csv('bauhaus_muet_products.csv')
+
+# Initialize an empty dictionary to hold the new product data
+new_products_db_from_scrape = {}
+
+# Iterate through the DataFrame and format the data for products_db
+for index, row in df_scraped_products.iterrows():
+    product_name = row['Product Name']
+    price = float(row['Price']) if pd.notna(row['Price']) and row['Price'] != 'N/A' else DEFAULT_PRICE
+    image_url = row['Image URL'] if pd.notna(row['Image URL']) and row['Image URL'] != 'N/A' else ""
+    product_url = row['Product URL'] if pd.notna(row['Product URL']) and row['Product URL'] != 'N/A' else ""
+
+    # Default values for fields not available from scraping
+    # These can be refined manually or through further scraping/logic if available elsewhere
+    category = "Uncategorized"
+    description = f"Official MUET product: {product_name}. Available at Bauhaus Hong Kong." # Using product name as a basic description
+    leather_type = "Unknown"
+    color = "Multi"
+    size = "One Size"
+    weight = DEFAULT_WEIGHT
+    dimensions = (DEFAULT_LENGTH, DEFAULT_WIDTH, DEFAULT_HEIGHT)
+
+    new_products_db_from_scrape[product_name] = {
+        "category": category,
+        "description": description,
+        "leather_type": leather_type,
+        "main_image": image_url,
+        "images": [image_url], # Assuming main_image is the only image for now
+        "color": color,
+        "size": size,
+        "price": price,
+        "weight": weight,
+        "dimensions": dimensions,
+        "product_url": product_url # Adding the product URL for completeness
+    }
+
+# Overwrite the existing products_db with the newly scraped and formatted data
+products_db = new_products_db_from_scrape
+
+print(f"Successfully updated products_db with {len(products_db)} items from the scraped data.")
+print("First 5 products in updated products_db:")
+
+# Displaying the first few updated products for verification
+for i, (name, data) in enumerate(products_db.items()):
+    if i >= 5:
+        break
+    print(f"- {name}: Price={data['price']}, Image={data['main_image']}")
+
+# Clear previously uploaded products to allow fresh selection from the new database
+uploaded = []
+save_uploaded()
+print("Uploaded products cache has been cleared.")

@@ -1,4 +1,11 @@
-from ast import literal_eval
+import pandas as pd
+
+# Define default constants
+DEFAULT_PRICE = 0.0
+DEFAULT_WEIGHT = 0.0
+DEFAULT_LENGTH = 0.0
+DEFAULT_WIDTH = 0.0
+DEFAULT_HEIGHT = 0.0
 
 # Ensure df_scraped_products is available in the current scope
 # If this cell is run independently, you might need to load the CSV:
@@ -15,9 +22,8 @@ for index, row in df_scraped_products.iterrows():
     product_url = row['Product URL'] if pd.notna(row['Product URL']) and row['Product URL'] != 'N/A' else ""
 
     # Default values for fields not available from scraping
-    # These can be refined manually or through further scraping/logic if available elsewhere
     category = "Uncategorized"
-    description = f"Official MUET product: {product_name}. Available at Bauhaus Hong Kong." # Using product name as a basic description
+    description = f"Official MUET product: {product_name}. Available at Bauhaus Hong Kong."
     leather_type = "Unknown"
     color = "Multi"
     size = "One Size"
@@ -29,13 +35,15 @@ for index, row in df_scraped_products.iterrows():
         "description": description,
         "leather_type": leather_type,
         "main_image": image_url,
-        "images": [image_url], # Assuming main_image is the only image for now
+        "images": [image_url],
         "color": color,
         "size": size,
         "price": price,
         "weight": weight,
-        "dimensions": dimensions,
-        "product_url": product_url # Adding the product URL for completeness
+        "length": dimensions[0],
+        "width": dimensions[1],
+        "height": dimensions[2],
+        "product_url": product_url
     }
 
 # Overwrite the existing products_db with the newly scraped and formatted data
@@ -50,7 +58,18 @@ for i, (name, data) in enumerate(products_db.items()):
         break
     print(f"- {name}: Price={data['price']}, Image={data['main_image']}")
 
+# Convert products_db to DataFrame for Excel export
+products_df = pd.DataFrame.from_dict(products_db, orient='index')
+
+# Remove the 'images' column (list) if you don't need it, or convert to string
+products_df['images'] = products_df['images'].apply(lambda x: ', '.join(x) if isinstance(x, list) else x)
+
+# Export to Excel
+excel_filename = 'scraped_products.xlsx'
+products_df.to_excel(excel_filename, sheet_name='Products')
+print(f"\n✓ Successfully exported {len(products_df)} products to '{excel_filename}'")
+
 # Clear previously uploaded products to allow fresh selection from the new database
 uploaded = []
-save_uploaded()
+# save_uploaded()  # Commented out if this function is not defined
 print("Uploaded products cache has been cleared.")

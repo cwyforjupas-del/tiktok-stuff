@@ -1,4 +1,8 @@
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+import re
+import time
 
 # Define default constants
 DEFAULT_PRICE = 0.0
@@ -7,69 +11,165 @@ DEFAULT_LENGTH = 0.0
 DEFAULT_WIDTH = 0.0
 DEFAULT_HEIGHT = 0.0
 
-# Ensure df_scraped_products is available in the current scope
-# If this cell is run independently, you might need to load the CSV:
-df_scraped_products = pd.read_csv('bauhaus_muet_products.csv')
+def scrape_collection_page(collection_url):
+    """
+    Scrape all product URLs from a Bauhaus collection page
+    Handles pagination if needed
+    """
+    product_urls = []
+    base_url = "https://www.bauhaus.com.hk"
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(collection_url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Find all product links (adjust selector based on actual HTML structure)
+        product_links = soup.find_all('a', class_='product-item-meta')  # Adjust class if needed
+        
+        for link in product_links:
+            href = link.get('href')
+            if href:
+                full_url = href if href.startswith('http') else base_url + href
+                product_urls.append(full_url)
+        
+        print(f"Found {len(product_urls)} products in collection")
+        return product_urls
+    
+    except Exception as e:
+        print(f"Error scraping collection: {e}")
+        return []
 
-# Initialize an empty dictionary to hold the new product data
+def scrape_bauhaus_product(product_url):
+    """
+    Scrape product data from a Bauhaus product page
+    Extracts data from meta tags and HTML content
+    """
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(product_url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        product_data = {}
+        
+        # Extract from Open Graph meta tags
+        product_data['title'] = soup.find('meta', property='og:title')
+        product_data['title'] = product_data['title']['content'] if product_data['title'] else "Unknown"
+        
+        product_data['description'] = soup.find('meta', property='og:description')
+        product_data['description'] = product_data['description']['content'] if product_data['description'] else ""
+        
+        product_data['image_url'] = soup.find('meta', property='og:image:secure_url')
+        product_data['image_url'] = product_data['image_url']['content'] if product_data['image_url'] else ""
+        
+        product_data['price'] = soup.find('meta', property='og:price:amount')
+        product_data['price'] = float(product_data['price']['content']) if product_data['price'] else DEFAULT_PRICE
+        
+        # Extract dimensions from the description or metafield
+        dimensions = extract_dimensions(soup, product_data['description'])
+        product_data['length'] = dimensions.get('length', DEFAULT_LENGTH)
+        product_data['width'] = dimensions.get('width', DEFAULT_WIDTH)
+        product_data['height'] = dimensions.get('height', DEFAULT_HEIGHT)
+        
+        return product_data
+    
+    except Exception as e:
+        print(f"Error scraping {product_url}: {e}")
+        return None
+
+def extract_dimensions(soup, description):
+    """
+    Extract dimensions from metafield or description text
+    Looks for pattern: "32 x 8 x 24.5 厘米" or similar
+    """
+    dimensions = {'length': DEFAULT_LENGTH, 'width': DEFAULT_WIDTH, 'height': DEFAULT_HEIGHT}
+    
+    # Try to find metafield with dimensions
+    metafield = soup.find('span', class_='metafield-multi_line_text_field')
+    if metafield:
+        text = metafield.get_text()
+    else:
+        text = description
+    
+    # Pattern: numbers separated by x (handles both English and Chinese)
+    pattern = r'(\d+\.?\d*)\s*[xX×]\s*(\d+\.?\d*)\s*[xX×]\s*(\d+\.?\d*)'
+    match = re.search(pattern, text)
+    
+    if match:
+        dimensions['length'] = float(match.group(1))
+        dimensions['width'] = float(match.group(2))
+        dimensions['height'] = float(match.group(3))
+    
+    return dimensions
+
+# ========== MAIN EXECUTION ==========
+
+# Option 1: Scrape from collection page
+collection_url = "https://www.bauhaus.com.hk/collections/muet"
+print(f"Scraping collection: {collection_url}\n")
+product_urls = scrape_collection_page(collection_url)
+
+# Option 2: Or load from existing CSV
+# df_scraped_products = pd.read_csv('bauhaus_muet_products.csv')
+# product_urls = df_scraped_products['Product URL'].tolist()
+
+# Initialize dictionary for new products
 new_products_db_from_scrape = {}
 
-# Iterate through the DataFrame and format the data for products_db
-for index, row in df_scraped_products.iterrows():
-    product_name = row['Product Name']
-    price = float(row['Price']) if pd.notna(row['Price']) and row['Price'] != 'N/A' else DEFAULT_PRICE
-    image_url = row['Image URL'] if pd.notna(row['Image URL']) and row['Image URL'] != 'N/A' else ""
-    product_url = row['Product URL'] if pd.notna(row['Product URL']) and row['Product URL'] != 'N/A' else ""
+# Iterate through product URLs and scrape detailed data
+for idx, product_url in enumerate(product_urls, 1):
+    print(f"\nScraping [{idx}/{len(product_urls)}]: {product_url}")
+    scraped_data = scrape_bauhaus_product(product_url)
+    
+    if scraped_data:
+        product_name = scraped_data['title']
+        new_products_db_from_scrape[product_name] = {
+            "category": "MUET",
+            "description": scraped_data['description'],
+            "leather_type": "Unknown",
+            "main_image": scraped_data['image_url'],
+            "images": [scraped_data['image_url']],
+            "color": "Multi",
+            "size": "One Size",
+            "price": scraped_data['price'],
+            "weight": DEFAULT_WEIGHT,
+            "length": scraped_data['length'],
+            "width": scraped_data['width'],
+            "height": scraped_data['height'],
+            "product_url": product_url
+        }
+    
+    # Be respectful - add delay between requests
+    time.sleep(1)
 
-    # Default values for fields not available from scraping
-    category = "Uncategorized"
-    description = f"Official MUET product: {product_name}. Available at Bauhaus Hong Kong."
-    leather_type = "Unknown"
-    color = "Multi"
-    size = "One Size"
-    weight = DEFAULT_WEIGHT
-    dimensions = (DEFAULT_LENGTH, DEFAULT_WIDTH, DEFAULT_HEIGHT)
-
-    new_products_db_from_scrape[product_name] = {
-        "category": category,
-        "description": description,
-        "leather_type": leather_type,
-        "main_image": image_url,
-        "images": [image_url],
-        "color": color,
-        "size": size,
-        "price": price,
-        "weight": weight,
-        "length": dimensions[0],
-        "width": dimensions[1],
-        "height": dimensions[2],
-        "product_url": product_url
-    }
-
-# Overwrite the existing products_db with the newly scraped and formatted data
+# Update products_db
 products_db = new_products_db_from_scrape
 
-print(f"Successfully updated products_db with {len(products_db)} items from the scraped data.")
-print("First 5 products in updated products_db:")
+print(f"\n✓ Successfully updated products_db with {len(products_db)} items from scraped data.")
+print("\nFirst 5 products in updated products_db:")
 
-# Displaying the first few updated products for verification
 for i, (name, data) in enumerate(products_db.items()):
     if i >= 5:
         break
-    print(f"- {name}: Price={data['price']}, Image={data['main_image']}")
+    print(f"\n- {name}:")
+    print(f"  Price: {data['price']} HKD")
+    print(f"  Dimensions: {data['length']} x {data['width']} x {data['height']} cm")
+    print(f"  Description: {data['description'][:100]}...")
 
-# Convert products_db to DataFrame for Excel export
+# Convert to DataFrame and export
 products_df = pd.DataFrame.from_dict(products_db, orient='index')
-
-# Remove the 'images' column (list) if you don't need it, or convert to string
 products_df['images'] = products_df['images'].apply(lambda x: ', '.join(x) if isinstance(x, list) else x)
 
-# Export to Excel
 excel_filename = 'scraped_products.xlsx'
 products_df.to_excel(excel_filename, sheet_name='Products')
 print(f"\n✓ Successfully exported {len(products_df)} products to '{excel_filename}'")
 
-# Clear previously uploaded products to allow fresh selection from the new database
+# Clear previously uploaded products
 uploaded = []
-# save_uploaded()  # Commented out if this function is not defined
 print("Uploaded products cache has been cleared.")
